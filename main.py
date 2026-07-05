@@ -73,33 +73,52 @@ def get_carriers(req: Request, keyword: Optional[str] = None, status: Optional[s
         result = [c for c in result if c["max_weight_capacity"] >= min_weight]
     return success_response(200, "Danh sách đối tác", result, req.url.path)
 
+@app.get("/carriers/{carrier_id}")
+def get_carrier(carrier_id: int, req: Request):
+    carrier = next((c for c in carriers if c["id"] == carrier_id), None)
+    if not carrier:
+        raise HTTPException(404, "Carrier not found")
+    return success_response(200, "Chi tiết đối tác", carrier, req.url.path)
+
 @app.post("/carriers")
 def create_carrier(carrier: CarrierSchema, req: Request):
     if carrier.status not in ["ACTIVE", "INACTIVE", "SUSPENDED"]:
         raise HTTPException(400, "Trạng thái không hợp lệ")
     if any(c["code"] == carrier.code for c in carriers):
         raise HTTPException(400, "Mã đối tác đã tồn tại")
-    
     new_carrier = {"id": max([c["id"] for c in carriers], default=0) + 1, **carrier.model_dump()}
     carriers.append(new_carrier)
     return success_response(201, "Tạo đối tác thành công", new_carrier, req.url.path)
+
+@app.put("/carriers/{carrier_id}")
+def update_carrier(carrier_id: int, carrier: CarrierSchema, req: Request):
+    for c in carriers:
+        if c["id"] == carrier_id:
+            c.update(carrier.model_dump())
+            return success_response(200, "Cập nhật đối tác thành công", c, req.url.path)
+    raise HTTPException(404, "Carrier not found")
+
+@app.delete("/carriers/{carrier_id}")
+def delete_carrier(carrier_id: int, req: Request):
+    for i, c in enumerate(carriers):
+        if c["id"] == carrier_id:
+            carriers.pop(i)
+            return JSONResponse(status_code=204, content=None)
+    raise HTTPException(404, "Carrier not found")
 
 @app.post("/shipments")
 def create_shipment(s: ShipmentSchema, req: Request):
     if s.shift not in ["MORNING", "AFTERNOON", "NIGHT"]:
         raise HTTPException(400, "Ca làm việc không hợp lệ")
-        
     carrier = next((c for c in carriers if c["id"] == s.carrier_id), None)
     if not carrier:
         raise HTTPException(404, "Carrier not found")
     if carrier["status"] != "ACTIVE":
-        raise HTTPException(400, "Đối tác không đang ở trạng thái hoạt động")
+        raise HTTPException(400, "Đối tác không đang hoạt động")
     if s.total_weight > carrier["max_weight_capacity"]:
-        raise HTTPException(400, "Vượt quá tải trọng tối đa của đối tác")
-    
-    if any(ship["carrier_id"] == s.carrier_id and ship["dispatch_date"] == s.dispatch_date and ship["shift"] == s.shift for ship in shipments):
-        raise HTTPException(400, "Đã tồn tại chuyến hàng trùng lịch và ca làm việc")
-    
+        raise HTTPException(400, "Vượt quá tải trọng tối đa")
+    if any(sh["carrier_id"] == s.carrier_id and sh["dispatch_date"] == s.dispatch_date and sh["shift"] == s.shift for sh in shipments):
+        raise HTTPException(400, "Trùng lịch điều phối")
     new_shipment = {"id": len(shipments) + 1, **s.model_dump()}
     shipments.append(new_shipment)
     return success_response(201, "Khởi tạo chuyến hàng thành công", new_shipment, req.url.path)
